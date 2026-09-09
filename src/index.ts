@@ -14,9 +14,9 @@
  *   - http: for hosted deployment via the WYRE MCP gateway
  *
  * Auth modes:
- *   - env (default): AVANAN_APP_ID + AVANAN_TOKEN + AVANAN_SECRET, optional AVANAN_REGION
+ *   - env (default): AVANAN_CLIENT_ID + AVANAN_CLIENT_SECRET, optional AVANAN_REGION
  *   - gateway: credentials injected per-request from
- *       X-Avanan-App-Id, X-Avanan-Token, X-Avanan-Secret, optional X-Avanan-Region
+ *       X-Avanan-Client-Id, X-Avanan-Client-Secret, optional X-Avanan-Region
  */
 
 import { createServer as createHttpServer, IncomingMessage, ServerResponse } from "node:http";
@@ -28,14 +28,14 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { logger } from "./utils/logger.js";
-import { credentialStore, type RequestCredentials } from "./utils/credential-store.js";
+import { credentialStore, extractCredentialsFromHeaders } from "./utils/credential-store.js";
 import { registerResourceHandlers } from "./resources.js";
 import { partnerTools, handlePartnerTool } from "./tools/partners.js";
 import { userTools, handleUserTool } from "./tools/users.js";
 import { tenantTools, handleTenantTool } from "./tools/tenants.js";
 import { licenseTools, handleLicenseTool } from "./tools/licenses.js";
 import { usageTools, handleUsageTool } from "./tools/usage.js";
-import { REGIONAL_BASE_URLS, type AvananRegion, type CallToolResult } from "./utils/types.js";
+import type { CallToolResult } from "./utils/types.js";
 
 const ALL_TOOLS = [
   ...partnerTools,
@@ -95,24 +95,6 @@ function createMcpServer(): Server {
 /* Transports                                                                  */
 /* -------------------------------------------------------------------------- */
 
-function extractCredentialsFromHeaders(req: IncomingMessage): RequestCredentials | null {
-  const h = req.headers;
-  const get = (k: string) => {
-    const v = h[k.toLowerCase()];
-    return Array.isArray(v) ? v[0] : v;
-  };
-
-  const appId = get("x-avanan-app-id");
-  const token = get("x-avanan-token");
-  const secret = get("x-avanan-secret");
-  if (!appId || !token || !secret) return null;
-
-  const regionRaw = get("x-avanan-region")?.toLowerCase();
-  const region = regionRaw && regionRaw in REGIONAL_BASE_URLS ? (regionRaw as AvananRegion) : undefined;
-
-  return { appId, token, secret, region };
-}
-
 async function startStdio(): Promise<void> {
   const server = createMcpServer();
   const transport = new StdioServerTransport();
@@ -128,7 +110,7 @@ async function startHttp(port: number): Promise<void> {
       return;
     }
 
-    const creds = extractCredentialsFromHeaders(req);
+    const creds = extractCredentialsFromHeaders(req.headers);
     const handle = async () => {
       const server = createMcpServer();
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });

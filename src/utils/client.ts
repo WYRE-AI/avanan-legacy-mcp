@@ -1,31 +1,39 @@
 /**
  * Avanan MSP SmartAPI HTTP client.
  *
- * Auth model (per the MSP SmartAPI Reference Guide, page 7):
- *   Every request carries five headers:
- *     - x-av-req-id : fresh UUID per request
- *     - x-av-token  : token from the Avanan auth handshake
- *     - x-av-app-id : Application ID provided by Avanan Support
- *     - x-av-date   : ISO-8601 UTC datetime, format 'YYYY-MM-DDTHH:mm:ss.SSSZ'
- *     - x-av-sig    : HMAC signature of the canonical request, see signRequest()
+ * Auth model, verified live against smart-api-production-1-us on 2026-09-09
+ * (contract pinned in tests/client.test.ts):
  *
- * Region selection:
- *   1. Per-request RequestCredentials.region (gateway HTTP mode).
- *   2. AVANAN_REGION env var (us | eu | ca | ap).
- *   3. JWT region claim if x-av-token is a JWT (best-effort).
- *   4. Default: "us".
+ *   1. GET {base}/v1.0/auth, signed with the client secret, returns the JWT as
+ *      the raw response body (not JSON). The token is valid for one hour.
+ *   2. Every request carries:
+ *        x-av-req-id : fresh UUID
+ *        x-av-app-id : client ID
+ *        x-av-date   : ISO-8601 UTC *without* the trailing "Z". The guide
+ *                      documents ".000Z", but the API answers 500 to it.
+ *        x-av-sig    : sha256(base64(reqId + appId + date [+ path?query] + secret)), hex
+ *        x-av-token  : "" on the auth call, the JWT on every other call
+ *      The path with query string is part of the signature on data requests
+ *      only. This matches Check Point's reference client.py.
+ *
+ * Region selection: per-request credentials (gateway) > AVANAN_REGION > "us".
+ * Avanan issues one API key per region, so there is nothing to auto-detect.
  */
 
-import { randomUUID, createHmac } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { logger } from "./logger.js";
 import { getRequestCredentials } from "./credential-store.js";
+import { httpRequest } from "./transport.js";
 import {
   REGIONAL_BASE_URLS,
   DEFAULT_REGION,
+  parseRegion,
   type AvananCredentials,
-  type AvananRegion,
   type ApiResponse,
 } from "./types.js";
+
+const TOKEN_LIFETIME_MS = 3_600_000; // documented: 1 hour
+const TOKEN_EXPIRY_BUFFER_MS = 60_000;
 
 /* -------------------------------------------------------------------------- */
 /* Credentials                                                                 */
@@ -33,111 +41,95 @@ import {
 
 export function getCredentials(): AvananCredentials | null {
   const req = getRequestCredentials();
-  if (req) {
-    return {
-      appId: req.appId,
-      token: req.token,
-      secret: req.secret,
-      region: req.region ?? resolveRegionFromEnv(),
-    };
-  }
+  if (req) return { ...req, region: req.region ?? parseRegion(process.env.AVANAN_REGION) };
 
-  const appId = process.env.AVANAN_APP_ID;
-  const token = process.env.AVANAN_TOKEN;
-  const secret = process.env.AVANAN_SECRET;
+  const clientId = process.env.AVANAN_CLIENT_ID;
+  const clientSecret = process.env.AVANAN_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return null;
 
-  if (!appId || !token || !secret) {
-    logger.warn("Missing Avanan credentials", {
-      hasAppId: !!appId,
-      hasToken: !!token,
-      hasSecret: !!secret,
-    });
-    return null;
-  }
-
-  return { appId, token, secret, region: resolveRegionFromEnv() };
-}
-
-function resolveRegionFromEnv(): AvananRegion | undefined {
-  const r = process.env.AVANAN_REGION?.toLowerCase();
-  if (r && r in REGIONAL_BASE_URLS) return r as AvananRegion;
-  return undefined;
-}
-
-function decodeJwtRegion(token: string): AvananRegion | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    const payload = Buffer.from(parts[1], "base64url").toString("utf8");
-    const claims = JSON.parse(payload) as Record<string, unknown>;
-    const region = typeof claims.region === "string" ? claims.region.toLowerCase() : null;
-    if (region && region in REGIONAL_BASE_URLS) return region as AvananRegion;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function resolveBaseUrl(creds: AvananCredentials): string {
-  const region =
-    creds.region ?? decodeJwtRegion(creds.token) ?? DEFAULT_REGION;
-  return REGIONAL_BASE_URLS[region];
+  return { clientId, clientSecret, region: parseRegion(process.env.AVANAN_REGION) };
 }
 
 /* -------------------------------------------------------------------------- */
 /* Request signing                                                             */
 /* -------------------------------------------------------------------------- */
 
+/** x-av-date format the API actually accepts: ISO-8601 UTC, no trailing "Z". */
+export function formatAvananDate(date: Date): string {
+  return date.toISOString().slice(0, -1);
+}
+
 /**
  * Compute the x-av-sig header value.
- *
- * ─────────────────────────────────────────────────────────────────────────
- *  ★ CONTRIBUTION POINT — Signing algorithm
- * ─────────────────────────────────────────────────────────────────────────
- *  The Avanan MSP SmartAPI Reference Guide says only "Calculated signature"
- *  for x-av-sig and points to the parent "Avanan API Reference Guide" for
- *  the algorithm. That document is not in the MSP guide we have here.
- *
- *  The default below is a *best-guess*: HMAC-SHA256 over a canonical string
- *  built from method, path, x-av-date, and x-av-req-id, keyed by the shared
- *  secret, hex-encoded. This matches the common Avanan/Check Point pattern.
- *
- *  Replace the body of this function with the exact algorithm from the
- *  parent Avanan API guide. Likely shape:
- *
- *    const canonical = [method, path, date, reqId, bodyHash].join("\n");
- *    return createHmac("sha256", secret).update(canonical).digest("hex");
- *
- *  Tell us in the parent guide whether the canonical string includes:
- *    - the SHA-256 hex of the request body
- *    - the x-av-app-id value
- *    - a trailing newline
- *  …and whether the output is hex or base64.
- * ─────────────────────────────────────────────────────────────────────────
+ * Pass `requestString` (path + query) for data requests; omit it for /auth.
  */
 export function signRequest(args: {
-  method: string;
-  path: string;
-  date: string;
   reqId: string;
   appId: string;
-  body: string;
+  date: string;
+  requestString?: string;
   secret: string;
 }): string {
-  const bodyHash = args.body
-    ? createHmac("sha256", args.secret).update(args.body).digest("hex")
-    : "";
+  const canonical = args.reqId + args.appId + args.date + (args.requestString ?? "") + args.secret;
+  const encoded = Buffer.from(canonical, "utf8").toString("base64");
+  return createHash("sha256").update(encoded).digest("hex");
+}
 
-  const canonical = [
-    args.method.toUpperCase(),
-    args.path,
-    args.date,
-    args.reqId,
-    args.appId,
-    bodyHash,
-  ].join("\n");
+function signedHeaders(
+  creds: AvananCredentials,
+  token: string,
+  requestString?: string
+): Record<string, string> {
+  const reqId = randomUUID();
+  const date = formatAvananDate(new Date());
+  return {
+    accept: "application/json",
+    "x-av-req-id": reqId,
+    "x-av-app-id": creds.clientId,
+    "x-av-date": date,
+    "x-av-sig": signRequest({ reqId, appId: creds.clientId, date, requestString, secret: creds.clientSecret }),
+    "x-av-token": token,
+  };
+}
 
-  return createHmac("sha256", args.secret).update(canonical).digest("hex");
+/* -------------------------------------------------------------------------- */
+/* Token cache                                                                 */
+/* -------------------------------------------------------------------------- */
+
+// Keyed by client ID so concurrent gateway tenants never share a token.
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+
+export function clearTokenCache(): void {
+  tokenCache.clear();
+}
+
+function jwtExpiryMs(token: string): number {
+  try {
+    const claims = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString("utf8"));
+    if (typeof claims.exp === "number") return claims.exp * 1000;
+  } catch {
+    // Not a decodable JWT; fall back to the documented lifetime.
+  }
+  return Date.now() + TOKEN_LIFETIME_MS;
+}
+
+async function getToken(creds: AvananCredentials, baseUrl: string): Promise<string> {
+  const cached = tokenCache.get(creds.clientId);
+  if (cached && Date.now() < cached.expiresAt - TOKEN_EXPIRY_BUFFER_MS) return cached.token;
+
+  const res = await httpRequest({
+    url: `${baseUrl}/v1.0/auth`,
+    method: "GET",
+    headers: signedHeaders(creds, ""),
+  });
+  if (res.status !== 200) {
+    throw new Error(`Avanan authentication failed (${res.status}): ${errorMessage(res.text, res.status)}`);
+  }
+
+  const token = res.text.trim();
+  tokenCache.set(creds.clientId, { token, expiresAt: jwtExpiryMs(token) });
+  logger.debug("Avanan token obtained", { clientId: creds.clientId, baseUrl });
+  return token;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -150,92 +142,63 @@ export interface ApiRequestOptions {
   params?: Record<string, string | number | boolean | undefined>;
 }
 
+function errorMessage(text: string, status: number): string {
+  try {
+    const parsed = JSON.parse(text) as {
+      responseEnvelope?: { responseText?: string; additionalText?: string };
+      message?: string;
+    };
+    const env = parsed.responseEnvelope;
+    const msg = env?.responseText || env?.additionalText || parsed.message;
+    if (msg) return msg;
+  } catch {
+    // Not JSON; fall through to the raw text.
+  }
+  return text ? text.slice(0, 200) : `HTTP ${status}`;
+}
+
 export async function apiRequest<T = unknown>(
   path: string,
   options: ApiRequestOptions = {}
 ): Promise<ApiResponse<T>> {
   const creds = getCredentials();
   if (!creds) {
-    throw new Error(
-      "No Avanan credentials configured. Set AVANAN_APP_ID, AVANAN_TOKEN, and AVANAN_SECRET."
-    );
+    throw new Error("No Avanan credentials configured. Set AVANAN_CLIENT_ID and AVANAN_CLIENT_SECRET.");
   }
 
-  const baseUrl = resolveBaseUrl(creds);
+  const baseUrl = REGIONAL_BASE_URLS[creds.region ?? DEFAULT_REGION];
+  const token = await getToken(creds, baseUrl);
+
   const method = options.method ?? "GET";
-  const fullPath = path.startsWith("/") ? `/v1.0${path}` : `/v1.0/${path}`;
-
-  const url = new URL(`${baseUrl}${fullPath}`);
-  if (options.params) {
-    for (const [k, v] of Object.entries(options.params)) {
-      if (v !== undefined) url.searchParams.set(k, String(v));
-    }
+  const url = new URL(`${baseUrl}/v1.0${path.startsWith("/") ? path : `/${path}`}`);
+  for (const [key, value] of Object.entries(options.params ?? {})) {
+    if (value !== undefined) url.searchParams.set(key, String(value));
   }
 
-  const reqId = randomUUID();
-  const date = new Date().toISOString();
-  const bodyText =
-    options.body !== undefined && method !== "GET"
-      ? JSON.stringify(options.body)
-      : "";
-
-  const sig = signRequest({
-    method,
-    path: url.pathname + (url.search || ""),
-    date,
-    reqId,
-    appId: creds.appId,
-    body: bodyText,
-    secret: creds.secret,
-  });
-
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    "x-av-req-id": reqId,
-    "x-av-token": creds.token,
-    "x-av-app-id": creds.appId,
-    "x-av-date": date,
-    "x-av-sig": sig,
-  };
-  if (bodyText) headers["Content-Type"] = "application/json";
-
-  const init: RequestInit = {
-    method,
-    headers,
-    signal: AbortSignal.timeout(30_000),
-  };
-  if (bodyText) init.body = bodyText;
+  const headers = signedHeaders(creds, token, url.pathname + url.search);
+  const body = options.body === undefined ? undefined : JSON.stringify(options.body);
+  if (body !== undefined) headers["content-type"] = "application/json";
 
   logger.debug("Avanan API request", { method, url: url.toString() });
-  const res = await fetch(url.toString(), init);
+  const res = await httpRequest({ url: url.toString(), method, headers, body });
 
   // 204 No Content (deletes)
   if (res.status === 204) {
     return {
-      responseEnvelope: {
-        requestId: reqId,
-        responseCode: 204,
-        responseText: "Success",
-      },
+      responseEnvelope: { requestId: headers["x-av-req-id"], responseCode: 204, responseText: "Success" },
     };
   }
 
-  const raw = await res.text();
-  let parsed: unknown;
-  try {
-    parsed = raw ? JSON.parse(raw) : {};
-  } catch {
-    throw new Error(
-      `Avanan API returned non-JSON (${res.status}): ${raw.slice(0, 200)}`
-    );
-  }
-
-  if (!res.ok) {
-    const env = (parsed as ApiResponse).responseEnvelope;
-    const msg = env?.responseText || env?.additionalText || `HTTP ${res.status}`;
+  if (res.status === 401) tokenCache.delete(creds.clientId);
+  if (res.status < 200 || res.status >= 300) {
+    const msg = errorMessage(res.text, res.status);
     logger.error("Avanan API error", { status: res.status, url: url.toString(), msg });
     throw new Error(`Avanan API error (${res.status}): ${msg}`);
   }
 
-  return parsed as ApiResponse<T>;
+  try {
+    return JSON.parse(res.text) as ApiResponse<T>;
+  } catch {
+    throw new Error(`Avanan API returned non-JSON (${res.status}): ${res.text.slice(0, 200)}`);
+  }
 }

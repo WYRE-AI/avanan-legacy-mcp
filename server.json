@@ -18,29 +18,23 @@
       },
       "environmentVariables": [
         {
-          "name": "AVANAN_APP_ID",
-          "description": "Application ID provided by Avanan Support (x-av-app-id)",
+          "name": "AVANAN_CLIENT_ID",
+          "description": "MSP API Client ID issued by Avanan Support (sent as x-av-app-id)",
           "isRequired": true,
           "format": "string"
         },
         {
-          "name": "AVANAN_TOKEN",
-          "description": "Token from the Avanan auth handshake (x-av-token)",
-          "isRequired": true,
-          "isSecret": true,
-          "format": "string"
-        },
-        {
-          "name": "AVANAN_SECRET",
-          "description": "Shared secret used to compute the x-av-sig HMAC",
+          "name": "AVANAN_CLIENT_SECRET",
+          "description": "MSP API Client Secret used to sign every request (x-av-sig); never sent on the wire",
           "isRequired": true,
           "isSecret": true,
           "format": "string"
         },
         {
           "name": "AVANAN_REGION",
-          "description": "API region: us, eu, ca, or ap (defaults to JWT region claim, then us)",
+          "description": "API region: us (default), eu, ca, ap, euw2 (UK), or aps1 (India). Avanan issues one key per region.",
           "isRequired": false,
+          "default": "us",
           "format": "string"
         },
         {

@@ -31,6 +31,12 @@ are in README.md.
   on that, hence the small `node:https` wrapper in `src/utils/transport.ts`.
 - The `/auth` response body is the raw JWT (Cognito access token), not JSON. It carries
   `exp` (one hour) but no region claim.
+- The tenant-security endpoints (`/event/query`, `/search/query`, `/exceptions/*`,
+  `/action/*`, `/task/*`, `/scopes`) live on the same host with the same signing and accept
+  a customer-tenant key. Verified live 2026-09-09 with the WYRE tenant key: 454 events in
+  24h, entity search, exception lists. `/search/query` caps `recordsNumber` at 10000.
+- `scopes` (array) goes on `/event/query` and `/search/query`; `scope` (single string) goes
+  on `/action/event` and `/action/entity`. Exceptions take no scope field.
 - With a new key, run `avanan_test_connection` first. It prints the scopes and whether
   `/msp/*` is reachable, which is the whole diagnosis in one call.
 - The guide's "URLs and URL Base" section says `smartapi-production-1-us.avanan.net`

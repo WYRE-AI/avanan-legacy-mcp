@@ -67,3 +67,62 @@ export interface ApiResponse<T = unknown> {
   responseEnvelope: ResponseEnvelope;
   responseData?: T;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Tenant-security objects (Avanan SmartAPI Reference Guide, Feb 2024)         */
+/* -------------------------------------------------------------------------- */
+
+/** Security event from /event/query or /event/{id}. */
+export interface SecurityEvent {
+  eventId: string;
+  customerId?: string;
+  saas?: string;
+  entityId?: string;
+  state?: string;
+  type?: string;
+  confidenceIndicator?: string;
+  eventCreated?: string;
+  severity?: string;
+  description?: string;
+  availableEventActions?: Array<{ actionName: string; actionParameter?: unknown }>;
+  [key: string]: unknown;
+}
+
+/** Secured entity (email, file, message) from /search/query or /search/entity/{id}. */
+export interface SecuredEntity {
+  entityInfo?: {
+    entityId?: string;
+    customerId?: string;
+    saas?: string;
+    saasEntityType?: string;
+    entityCreated?: string;
+    [key: string]: unknown;
+  };
+  entityPayload?: {
+    subject?: string;
+    fromEmail?: string;
+    to?: string[];
+    recipients?: string[];
+    isQuarantined?: boolean;
+    isRestored?: boolean;
+    [key: string]: unknown;
+  };
+  entitySecurityResult?: { combinedVerdict?: unknown; [key: string]: unknown };
+  entityAvailableActions?: Array<{ entityActionName: string; entityActionParam?: string }>;
+  [key: string]: unknown;
+}
+
+/** Whitelist / blacklist entry from /exceptions/{excType}. */
+export interface ExceptionEntry {
+  entityId?: string;
+  senderEmail?: string;
+  senderDomain?: string;
+  senderName?: string;
+  recipient?: string;
+  subject?: string;
+  attachmentMd5?: string;
+  comment?: string;
+  addedBy?: string;
+  updateTime?: string;
+  [key: string]: unknown;
+}

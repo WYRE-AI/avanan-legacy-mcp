@@ -41,6 +41,7 @@ and the [Avanan SmartAPI Reference Guide (Feb 2024)](https://www.avanan.com/hubf
 | `MCP_TRANSPORT` | no | `stdio` (default) or `http`. |
 | `MCP_HTTP_PORT` | no | HTTP transport port (default 8080). |
 | `LOG_LEVEL` | no | `debug` \| `info` \| `warn` \| `error` (default `info`). |
+| `CONDUIT_S2S_SECRET` | no | Set by the Conduit vendor-fleet deploy. When non-empty, every `/mcp` request must carry a valid `X-Gateway-S2S` header (`t=<unix>,v1=<HMAC-SHA256 hex>`) or it is rejected with 401 before any credential handling. Empty disables enforcement. |
 
 In **gateway mode**, credentials are taken per-request from headers:
 `X-Avanan-Client-Id`, `X-Avanan-Client-Secret`, optionally `X-Avanan-Region`.

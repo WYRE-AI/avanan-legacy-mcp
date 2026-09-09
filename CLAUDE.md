@@ -45,6 +45,10 @@ are in README.md.
 - MSP API keys are not self-service. The guide says they are "received from Avanan
   Support"; WYRE customers who buy through Solutions Granted open the request there, and
   only direct Check Point customers go to Check Point. One key per region.
+- Conduit sidecars verify `X-Gateway-S2S` (`src/s2s-verify.ts`, port of conduit's
+  `src/proxy/s2s.ts`). The guard sits before `extractCredentialsFromHeaders` on purpose;
+  `tests/s2s.test.ts` boots the real HTTP handler and asserts the transport mock is never
+  touched on a rejected request. `index.ts` auto-starts only when it is the entry point.
 - With a new key, run `avanan_test_connection` first. It prints the scopes and whether
   `/msp/*` is reachable, which is the whole diagnosis in one call.
 - The guide's "URLs and URL Base" section says `smartapi-production-1-us.avanan.net`

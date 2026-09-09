@@ -57,6 +57,13 @@
           "isRequired": false,
           "default": "info",
           "format": "string"
+        },
+        {
+          "name": "CONDUIT_S2S_SECRET",
+          "description": "Conduit gateway S2S subkey; when set, /mcp requires a valid X-Gateway-S2S header (HTTP transport only)",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
         }
       ]
     }

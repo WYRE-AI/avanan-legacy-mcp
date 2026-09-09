@@ -19,7 +19,9 @@
  *       X-Avanan-Client-Id, X-Avanan-Client-Secret, optional X-Avanan-Region
  */
 
-import { createServer as createHttpServer, IncomingMessage, ServerResponse } from "node:http";
+import { realpathSync } from "node:fs";
+import { createServer as createHttpServer, IncomingMessage, ServerResponse, type Server as HttpServer } from "node:http";
+import { fileURLToPath } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -40,7 +42,14 @@ import { eventTools, handleEventTool } from "./tools/events.js";
 import { searchTools, handleSearchTool } from "./tools/search.js";
 import { exceptionTools, handleExceptionTool } from "./tools/exceptions.js";
 import { actionTools, handleActionTool } from "./tools/actions.js";
+import { verifyS2sHeader, S2S_HEADER } from "./s2s-verify.js";
 import type { CallToolResult } from "./utils/types.js";
+
+// Conduit service-to-service auth (gateway#377 parity). Non-empty =
+// enforce X-Gateway-S2S on every /mcp request; empty = disabled, behavior
+// exactly as before (dark-by-default until the gateway provisions this
+// container's derived subkey). See src/s2s-verify.ts.
+const S2S_SECRET = process.env.CONDUIT_S2S_SECRET || "";
 
 const ALL_TOOLS = [
   ...diagnosticTools,
@@ -110,18 +119,31 @@ function createMcpServer(): Server {
 /* Transports                                                                  */
 /* -------------------------------------------------------------------------- */
 
-async function startStdio(): Promise<void> {
+export async function startStdio(): Promise<void> {
   const server = createMcpServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   logger.info("Avanan legacy MCP server running on stdio");
 }
 
-async function startHttp(port: number): Promise<void> {
+export async function startHttp(port: number): Promise<HttpServer> {
   const http = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
     if (req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok", name: "avanan-legacy-mcp" }));
+      return;
+    }
+
+    // S2S guard runs first: a forged request must never reach credential
+    // handling, where the first tool call would mint an Avanan token.
+    if (S2S_SECRET && !verifyS2sHeader(req.headers[S2S_HEADER] as string | undefined, S2S_SECRET)) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          error:
+            "Missing or invalid X-Gateway-S2S header: this endpoint only accepts requests signed by the gateway.",
+        })
+      );
       return;
     }
 
@@ -140,24 +162,37 @@ async function startHttp(port: number): Promise<void> {
     }
   });
 
-  http.listen(port, () => logger.info("Avanan legacy MCP server listening", { port }));
+  await new Promise<void>((resolve) => http.listen(port, resolve));
+  logger.info("Avanan legacy MCP server listening", { port, s2sEnforced: S2S_SECRET !== "" });
+  return http;
 }
 
 /* -------------------------------------------------------------------------- */
 /* Main                                                                        */
 /* -------------------------------------------------------------------------- */
 
-const transport = (process.env.MCP_TRANSPORT || "stdio").toLowerCase();
-const port = Number(process.env.MCP_HTTP_PORT || 8080);
+/** True when this file is the process entry point (also via the npm bin symlink). */
+function isMain(): boolean {
+  try {
+    return realpathSync(process.argv[1] ?? "") === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
 
-if (transport === "http") {
-  startHttp(port).catch((err) => {
-    logger.error("Failed to start HTTP transport", { err: String(err) });
-    process.exit(1);
-  });
-} else {
-  startStdio().catch((err) => {
-    logger.error("Failed to start stdio transport", { err: String(err) });
-    process.exit(1);
-  });
+if (isMain()) {
+  const transport = (process.env.MCP_TRANSPORT || "stdio").toLowerCase();
+  const port = Number(process.env.MCP_HTTP_PORT || 8080);
+
+  if (transport === "http") {
+    startHttp(port).catch((err) => {
+      logger.error("Failed to start HTTP transport", { err: String(err) });
+      process.exit(1);
+    });
+  } else {
+    startStdio().catch((err) => {
+      logger.error("Failed to start stdio transport", { err: String(err) });
+      process.exit(1);
+    });
+  }
 }

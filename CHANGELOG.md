@@ -6,6 +6,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Conduit gateway S2S verification (gateway#377 parity).** When `CONDUIT_S2S_SECRET` is
+  set, every `/mcp` request must carry a valid `X-Gateway-S2S` header
+  (`t=<unixSeconds>,v1=<HMAC-SHA256 hex over "t=<unixSeconds>">`, 5-minute skew window,
+  timing-safe compare) or it is rejected with 401 before credential extraction, so a forged
+  request from a sibling sidecar never triggers an Avanan auth handshake. Empty secret keeps
+  the previous behaviour. `src/s2s-verify.ts` is a verbatim port of conduit's verifier.
+  `startHttp` / `startStdio` are now exported and the entry point only auto-starts when run
+  directly, so tests can boot the real HTTP handler.
+
+## [2.2.2] - 2026-09-09
+
 ### Changed
 
 - The `avanan_test_connection` remedy and the README no longer say to "generate an MSP API

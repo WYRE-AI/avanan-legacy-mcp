@@ -14,6 +14,11 @@ are in README.md.
 
 ## Learnings - 2026-09-09
 
+- The MCP Registry rejects `server.json` with `description` longer than 100 characters
+  (`422 expected length <= 100`). That check runs only in the release job, after the
+  GitHub release and GHCR push have already happened, so a long description costs a whole
+  release number. Keep it under 100 and check with `python3 -c 'import json;print(len(json.load(open("server.json"))["description"]))'`.
+
 - The SmartAPI returns HTTP 500 `{"message":"Internal Server Error"}` on every path when
   `x-av-date` ends in `Z`. This looked like a broken signature for a long time; it is the
   date. Send `new Date().toISOString().slice(0, -1)`.

@@ -35,8 +35,8 @@ and the [Avanan SmartAPI Reference Guide (Feb 2024)](https://www.avanan.com/hubf
 
 | Env var | Required | Description |
 | --- | --- | --- |
-| `AVANAN_CLIENT_ID` | yes | MSP API Client ID issued by Avanan Support (sent as `x-av-app-id`). |
-| `AVANAN_CLIENT_SECRET` | yes | MSP API Client Secret. Only ever used to sign requests; never sent on the wire. |
+| `AVANAN_CLIENT_ID` | yes | SmartAPI Client ID (sent as `x-av-app-id`). MSP or customer-tenant key; see below. |
+| `AVANAN_CLIENT_SECRET` | yes | SmartAPI Client Secret. Only ever used to sign requests; never sent on the wire. |
 | `AVANAN_REGION` | no | `us` (default) \| `eu` \| `ca` \| `ap` \| `euw2` \| `aps1`. Avanan issues one key per region. |
 | `MCP_TRANSPORT` | no | `stdio` (default) or `http`. |
 | `MCP_HTTP_PORT` | no | HTTP transport port (default 8080). |
@@ -49,11 +49,13 @@ The server performs the token handshake itself: it calls `GET /v1.0/auth`, cache
 one-hour JWT per client ID, and refreshes it a minute before expiry.
 
 > [!IMPORTANT]
-> The MSP-management tools need an **MSP** API key generated from the Avanan MSP portal. A
-> key generated inside a customer tenant authenticates successfully, but every `/msp/*`
-> endpoint then answers `403 MSP endpoint, access denied`. The security tools (events,
-> entities, exceptions, remediation) work with either kind of key. `avanan_test_connection`
-> reports which kind you have.
+> The MSP-management tools need an **MSP** API key. These are not self-service: Check
+> Point/Avanan Support issues them on request, through your distributor if you buy Avanan
+> through the channel, one per region. A key generated inside a customer tenant
+> authenticates successfully, but every `/msp/*` endpoint then answers
+> `403 MSP endpoint, access denied`. The security tools (events, entities, exceptions,
+> remediation) work with either kind of key. `avanan_test_connection` reports which kind
+> you have.
 
 With an MSP key, the security tools cover every managed customer; pass `scopes` (query
 and search) or `scope` (actions) with values from `avanan_list_scopes` to target one.

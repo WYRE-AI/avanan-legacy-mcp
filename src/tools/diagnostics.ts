@@ -2,9 +2,9 @@
  * Connection diagnostics and scope discovery.
  *
  * The most common failure is a key that authenticates fine but was generated
- * inside a customer tenant rather than the MSP portal: every /msp/* call then
- * answers "403 MSP endpoint, access denied". avanan_test_connection makes that
- * visible in one call. avanan_list_scopes shows the farm:tenant scopes an MSP
+ * inside a customer tenant rather than issued as an MSP key by Check Point
+ * Support: every /msp/* call then answers "403 MSP endpoint, access denied".
+ * avanan_test_connection makes that visible in one call. avanan_list_scopes shows the farm:tenant scopes an MSP
  * key can pass to the tenant-security tools.
  */
 
@@ -62,7 +62,7 @@ async function testConnection(): Promise<CallToolResult> {
     if (/\b403\b/.test(message)) {
       lines.push(
         `MSP access: DENIED (${message})`,
-        "This key authenticates but is not MSP-scoped. Generate an MSP API key from the Avanan MSP portal, not from inside a customer tenant. The tenant-security tools (events, search, exceptions, actions) still work with it."
+        "This key authenticates but is not MSP-scoped (it was generated inside a customer tenant). MSP API keys are not self-service: request one, one per region, from Check Point/Avanan Support, or through your distributor if you buy Avanan through the channel. The tenant-security tools (events, search, exceptions, actions) still work with this key."
       );
     } else {
       lines.push(`MSP access: ERROR (${message})`);

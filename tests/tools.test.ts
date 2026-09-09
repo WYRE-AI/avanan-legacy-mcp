@@ -117,7 +117,12 @@ describe("avanan_test_connection", () => {
     expect(text).toContain("mt-prod-3:wyretechnology");
     expect(text).toContain("MSP access: DENIED");
     expect(text).toContain("MSP endpoint, access denied");
-    expect(text).toMatch(/MSP portal/);
+    // Keys are issued by Check Point/Avanan Support (via the distributor for
+    // channel customers), not generated in a portal.
+    expect(text).toMatch(/Check Point\/Avanan Support/);
+    expect(text).toMatch(/distributor/);
+    expect(text).toMatch(/one per region/);
+    expect(text).not.toMatch(/MSP portal/);
   });
 
   it("reports MSP access OK when the licenses probe succeeds", async () => {

@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The `avanan_test_connection` remedy and the README no longer say to "generate an MSP API
+  key from the MSP portal". MSP keys are issued by Check Point/Avanan Support on request,
+  through the distributor for channel customers, one per region.
+
+## [2.2.1] - 2026-09-09
+
 ### Fixed
 
 - `server.json` description shortened to the MCP Registry's 100-character limit. The 2.2.0

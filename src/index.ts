@@ -35,9 +35,11 @@ import { userTools, handleUserTool } from "./tools/users.js";
 import { tenantTools, handleTenantTool } from "./tools/tenants.js";
 import { licenseTools, handleLicenseTool } from "./tools/licenses.js";
 import { usageTools, handleUsageTool } from "./tools/usage.js";
+import { diagnosticTools, handleDiagnosticTool } from "./tools/diagnostics.js";
 import type { CallToolResult } from "./utils/types.js";
 
 const ALL_TOOLS = [
+  ...diagnosticTools,
   ...partnerTools,
   ...userTools,
   ...tenantTools,
@@ -47,6 +49,7 @@ const ALL_TOOLS = [
 
 type ToolHandler = (name: string, args: Record<string, unknown>) => Promise<CallToolResult>;
 const TOOL_HANDLERS = new Map<string, ToolHandler>([
+  ...diagnosticTools.map((t) => [t.name, handleDiagnosticTool] as [string, ToolHandler]),
   ...partnerTools.map((t) => [t.name, handlePartnerTool] as [string, ToolHandler]),
   ...userTools.map((t) => [t.name, handleUserTool] as [string, ToolHandler]),
   ...tenantTools.map((t) => [t.name, handleTenantTool] as [string, ToolHandler]),

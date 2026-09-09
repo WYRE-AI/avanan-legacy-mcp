@@ -31,6 +31,13 @@ are in README.md.
   on that, hence the small `node:https` wrapper in `src/utils/transport.ts`.
 - The `/auth` response body is the raw JWT (Cognito access token), not JSON. It carries
   `exp` (one hour) but no region claim.
+- With a new key, run `avanan_test_connection` first. It prints the scopes and whether
+  `/msp/*` is reachable, which is the whole diagnosis in one call.
+- The guide's "URLs and URL Base" section says `smartapi-production-1-us.avanan.net`
+  (no hyphen). That host does not resolve; it is a typo for `smart-api-production-1-us`.
+- No Avanan or Check Point secrets exist in cortex-secret as of 2026-09-09, and the
+  `cortex-secret` CLI is read-only here (list|get|env|run), so keys can't be stored from
+  a session.
 - Current spec: 22 July 2026 guide,
   https://sc1.checkpoint.com/documents/Avanan_MSP_API_Reference/CP_Avanan_MSP_API_Reference_Guide.pdf
   (adds `euw2` UK and `aps1` India regions and the `msp/msppartners-extended` create

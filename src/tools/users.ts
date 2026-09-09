@@ -6,6 +6,7 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { apiRequest } from "../utils/client.js";
 import { formatPagedResult, formatObjectResult, formatDeleteResult } from "../utils/format.js";
+import { listRequestOptions } from "../utils/request.js";
 import type { CallToolResult } from "../utils/types.js";
 
 interface MspUser {
@@ -57,6 +58,7 @@ export const userTools: Tool[] = [
       type: "object",
       properties: {
         scrollId: { type: "string", description: "Pagination scroll ID from a previous response." },
+        MSPId: { type: "integer", description: "Parent MSPs only: restrict to the users of this child MSP." },
       },
       additionalProperties: false,
     },
@@ -76,7 +78,10 @@ export const userTools: Tool[] = [
     description: "Create a new MSP user.",
     inputSchema: {
       type: "object",
-      properties: userBodyProps,
+      properties: {
+        ...userBodyProps,
+        MSPId: { type: "integer", description: "Parent MSPs only: create the user under this child MSP." },
+      },
       required: userBodyRequired,
       additionalProperties: false,
     },
@@ -109,8 +114,10 @@ export async function handleUserTool(
 ): Promise<CallToolResult> {
   switch (name) {
     case "avanan_list_msp_users": {
-      const body = args.scrollId ? { requestData: { scrollId: String(args.scrollId) } } : undefined;
-      const res = await apiRequest<MspUser[]>("/msp/users", body ? { method: "GET", body } : {});
+      const res = await apiRequest<MspUser[]>(
+        "/msp/users",
+        listRequestOptions({ scrollId: args.scrollId, MSPId: args.MSPId })
+      );
       return formatPagedResult(res, res.responseData ?? [], "MSP user");
     }
     case "avanan_get_msp_user": {

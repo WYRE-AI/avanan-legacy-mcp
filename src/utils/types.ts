@@ -1,6 +1,6 @@
 /**
  * Shared types for the Avanan MSP SmartAPI MCP server.
- * Reference: Avanan MSP SmartAPI Reference Guide (Jan 2024).
+ * Reference: Avanan MSP SmartAPI Reference Guide (22 July 2026).
  */
 
 export type CallToolResult = {
@@ -9,24 +9,22 @@ export type CallToolResult = {
 };
 
 /**
- * Credentials for the Avanan MSP SmartAPI.
+ * Credentials for the Avanan MSP SmartAPI: the Client ID / Client Secret pair
+ * issued by Avanan Support. The client exchanges them for a one-hour JWT and
+ * signs every request with the secret (see utils/client.ts).
  *
- * - appId: x-av-app-id header value (provided by Avanan Support).
- * - token: x-av-token header value (bearer-style token from the Avanan auth handshake).
- * - secret: shared secret used to compute the x-av-sig HMAC signature.
- * - region: us | eu | ca | ap. Determines the regional URL base.
+ * Avanan issues a separate key per region, so `region` selects the URL base.
  */
 export interface AvananCredentials {
-  appId: string;
-  token: string;
-  secret: string;
+  clientId: string;
+  clientSecret: string;
   region?: AvananRegion;
 }
 
-export type AvananRegion = "us" | "eu" | "ca" | "ap";
+export type AvananRegion = "us" | "eu" | "ca" | "ap" | "euw2" | "aps1";
 
 /**
- * Regional URL bases per the Avanan MSP SmartAPI guide (page 5).
+ * Regional URL bases per the MSP SmartAPI guide ("Customer Tenant API URL").
  * All API calls go to https://{base}/v1.0/...
  */
 export const REGIONAL_BASE_URLS: Record<AvananRegion, string> = {
@@ -34,9 +32,17 @@ export const REGIONAL_BASE_URLS: Record<AvananRegion, string> = {
   eu: "https://smart-api-production-1-eu.avanan.net",
   ca: "https://smart-api-production-1-ca.avanan.net",
   ap: "https://smart-api-production-5-ap.avanan.net",
+  euw2: "https://smart-api-production-1-euw2.avanan.net",
+  aps1: "https://smart-api-production-1-aps1.avanan.net",
 };
 
 export const DEFAULT_REGION: AvananRegion = "us";
+
+/** Normalize a user-supplied region string; unknown values become undefined. */
+export function parseRegion(value: string | undefined): AvananRegion | undefined {
+  const region = value?.toLowerCase();
+  return region && region in REGIONAL_BASE_URLS ? (region as AvananRegion) : undefined;
+}
 
 /**
  * Standard Avanan response envelope (camelCase).

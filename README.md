@@ -4,7 +4,7 @@ MCP server for the **Avanan MSP SmartAPI** (the "legacy" Avanan MSP tenant manag
 API — distinct from `avanan-mcp`, which targets the Checkpoint Harmony Email & Collaboration
 HEC API).
 
-Implements the Jan 2024 Avanan MSP SmartAPI Reference Guide:
+Implements the [Avanan MSP SmartAPI Reference Guide (22 July 2026)](https://sc1.checkpoint.com/documents/Avanan_MSP_API_Reference/CP_Avanan_MSP_API_Reference_Guide.pdf):
 
 | Group | Tools |
 | --- | --- |
@@ -29,25 +29,37 @@ Implements the Jan 2024 Avanan MSP SmartAPI Reference Guide:
 
 | Env var | Required | Description |
 | --- | --- | --- |
-| `AVANAN_APP_ID` | yes | Application ID provided by Avanan Support (`x-av-app-id`). |
-| `AVANAN_TOKEN` | yes | Token from the Avanan auth handshake (`x-av-token`). |
-| `AVANAN_SECRET` | yes | Shared secret used to compute the `x-av-sig` HMAC. |
-| `AVANAN_REGION` | no | `us` \| `eu` \| `ca` \| `ap`. Defaults to JWT region claim, then `us`. |
+| `AVANAN_CLIENT_ID` | yes | MSP API Client ID issued by Avanan Support (sent as `x-av-app-id`). |
+| `AVANAN_CLIENT_SECRET` | yes | MSP API Client Secret. Only ever used to sign requests; never sent on the wire. |
+| `AVANAN_REGION` | no | `us` (default) \| `eu` \| `ca` \| `ap` \| `euw2` \| `aps1`. Avanan issues one key per region. |
 | `MCP_TRANSPORT` | no | `stdio` (default) or `http`. |
 | `MCP_HTTP_PORT` | no | HTTP transport port (default 8080). |
 | `LOG_LEVEL` | no | `debug` \| `info` \| `warn` \| `error` (default `info`). |
 
 In **gateway mode**, credentials are taken per-request from headers:
-`X-Avanan-App-Id`, `X-Avanan-Token`, `X-Avanan-Secret`, optionally `X-Avanan-Region`.
+`X-Avanan-Client-Id`, `X-Avanan-Client-Secret`, optionally `X-Avanan-Region`.
 
-## Status
+The server performs the token handshake itself: it calls `GET /v1.0/auth`, caches the
+one-hour JWT per client ID, and refreshes it a minute before expiry.
 
 > [!IMPORTANT]
-> The `x-av-sig` signing algorithm is implemented as a **best-guess HMAC-SHA256**
-> because the MSP SmartAPI guide defers signing details to the parent Avanan API
-> Reference Guide. Replace the body of `signRequest()` in
-> [`src/utils/client.ts`](src/utils/client.ts) with the exact algorithm before
-> production use. The function is isolated so no other code needs to change.
+> The key must be an **MSP** API key generated from the Avanan MSP portal. A key generated
+> inside a customer tenant authenticates successfully, but every `/msp/*` endpoint then
+> answers `403 MSP endpoint, access denied`.
+
+## Authentication details
+
+The wire format was verified against the live US endpoint in September 2026 and is pinned
+by `tests/client.test.ts`. Two details differ from the reference guide:
+
+- `x-av-date` must **not** end in `Z` (`2026-09-09T16:49:12.123`). The documented
+  `.000Z` form makes the API return HTTP 500.
+- `x-av-sig` is `sha256(base64(reqId + clientId + date + path?query + secret))` as hex.
+  The path is omitted on the `/auth` call only, and the `/auth` response body is the raw
+  JWT rather than JSON.
+
+Both match Check Point's reference
+[`client.py`](https://www.avanan.com/hubfs/MSP/documents/Smart-API-Documentation/parent_msp/client/client.py).
 
 ## Build
 
@@ -61,9 +73,11 @@ npm start
 
 | Region | Base |
 | --- | --- |
-| US | `https://smart-api-production-1-us.avanan.net` |
-| EU | `https://smart-api-production-1-eu.avanan.net` |
-| CA | `https://smart-api-production-1-ca.avanan.net` |
-| AP | `https://smart-api-production-5-ap.avanan.net` |
+| `us` | `https://smart-api-production-1-us.avanan.net` |
+| `eu` | `https://smart-api-production-1-eu.avanan.net` |
+| `ca` | `https://smart-api-production-1-ca.avanan.net` |
+| `ap` | `https://smart-api-production-5-ap.avanan.net` |
+| `euw2` (UK) | `https://smart-api-production-1-euw2.avanan.net` |
+| `aps1` (India) | `https://smart-api-production-1-aps1.avanan.net` |
 
 All endpoints sit under `/v1.0/msp/...`.

@@ -8,6 +8,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Per-tenant security tools** from the Avanan SmartAPI Reference Guide (Feb 2024), the
+  same host and key as the MSP endpoints: `avanan_query_events`, `avanan_get_event`,
+  `avanan_search_emails`, `avanan_get_email`, `avanan_list_exceptions`,
+  `avanan_get_exception`, `avanan_add_exception`, `avanan_update_exception`,
+  `avanan_delete_exception`, `avanan_quarantine_events`, `avanan_restore_events`,
+  `avanan_quarantine_emails`, `avanan_restore_emails`, `avanan_get_task_status`, and
+  `avanan_list_scopes`. They work with a customer-tenant key as well as an MSP key; MSP keys
+  target one customer with `scopes` / `scope`. Quarantine and delete tools carry
+  `destructiveHint`. The read-only tools were verified live against a US tenant key
+  (events, event detail, entity search, email detail, exception lists).
+
+## [2.1.0] - 2026-09-09
+
+### Added
+
 - `avanan_test_connection`: runs the auth handshake, lists the key's scopes, and probes
   `/msp/licenses`, so a customer-tenant key is reported as `MSP access: DENIED` with the
   remedy instead of failing every MSP tool with a bare 403.

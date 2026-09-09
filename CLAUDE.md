@@ -42,6 +42,9 @@ are in README.md.
   24h, entity search, exception lists. `/search/query` caps `recordsNumber` at 10000.
 - `scopes` (array) goes on `/event/query` and `/search/query`; `scope` (single string) goes
   on `/action/event` and `/action/entity`. Exceptions take no scope field.
+- MSP API keys are not self-service. The guide says they are "received from Avanan
+  Support"; WYRE customers who buy through Solutions Granted open the request there, and
+  only direct Check Point customers go to Check Point. One key per region.
 - With a new key, run `avanan_test_connection` first. It prints the scopes and whether
   `/msp/*` is reachable, which is the whole diagnosis in one call.
 - The guide's "URLs and URL Base" section says `smartapi-production-1-us.avanan.net`

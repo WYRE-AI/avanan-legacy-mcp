@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `server.json` description shortened to the MCP Registry's 100-character limit. The 2.2.0
+  registry publish failed validation on it, so 2.2.0 is on GitHub and GHCR but not in the
+  registry; this release supersedes it.
+
+## [2.2.0] - 2026-09-09
+
 ### Added
 
 - **Per-tenant security tools** from the Avanan SmartAPI Reference Guide (Feb 2024), the

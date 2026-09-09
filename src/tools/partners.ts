@@ -1,6 +1,6 @@
 /**
  * Child MSP partner management.
- * Endpoints under /v1.0/msp/msp-partners.
+ * Endpoints: /v1.0/msp/msp-partners (list, delete), /v1.0/msp/msppartners-extended (create).
  */
 
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -11,6 +11,10 @@ import type { CallToolResult } from "../utils/types.js";
 interface MspPartner {
   id: number;
   name: string;
+  website?: string;
+  country?: string;
+  state?: string;
+  zip?: string;
 }
 
 export const partnerTools: Tool[] = [
@@ -21,13 +25,23 @@ export const partnerTools: Tool[] = [
   },
   {
     name: "avanan_create_msp_partner",
-    description: "Create a new child MSP partner under the current MSP.",
+    description: "Create a new child MSP partner under the current MSP (msppartners-extended endpoint, July 2026 guide).",
     inputSchema: {
       type: "object",
       properties: {
         name: { type: "string", description: "Name of the new MSP partner." },
+        website: { type: "string", description: "MSP partner website URL." },
+        country: {
+          type: "string",
+          description: "Country the MSP is located in, spelled as in the guide's country list (e.g. 'United States').",
+        },
+        state: {
+          type: "string",
+          description: "US state name from the guide's state list. Required only when country is 'United States'.",
+        },
+        zip: { type: "string", description: "Postal / ZIP code." },
       },
-      required: ["name"],
+      required: ["name", "website", "country", "zip"],
       additionalProperties: false,
     },
   },
@@ -55,9 +69,10 @@ export async function handlePartnerTool(
       return formatPagedResult(res, res.responseData ?? [], "MSP partner");
     }
     case "avanan_create_msp_partner": {
-      const res = await apiRequest<MspPartner>("/msp/msp-partners", {
+      const { name: partnerName, website, country, state, zip } = args;
+      const res = await apiRequest<MspPartner>("/msp/msppartners-extended", {
         method: "POST",
-        body: { requestData: { name: String(args.name) } },
+        body: { requestData: { name: partnerName, website, country, state, zip } },
       });
       return formatObjectResult(res, "Created MSP partner");
     }

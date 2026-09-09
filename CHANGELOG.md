@@ -6,6 +6,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `avanan_test_connection`: runs the auth handshake, lists the key's scopes, and probes
+  `/msp/licenses`, so a customer-tenant key is reported as `MSP access: DENIED` with the
+  remedy instead of failing every MSP tool with a bare 403.
+- Parent-MSP filters from Check Point's reference client: optional `MSPId` on
+  `avanan_list_tenants`, `avanan_list_msp_users`, `avanan_create_tenant` and
+  `avanan_create_msp_user`; optional `msp_ids` and `scrollId` on both usage tools. Array
+  query params repeat the key (`msp_ids=1&msp_ids=2`), matching `urlencode(doseq=True)`.
+
+### Changed
+
+- `avanan_create_msp_partner` now calls `/msp/msppartners-extended` with `name`,
+  `website`, `country`, `state` (US only) and `zip`, per the July 2026 guide. The old
+  single-field endpoint was slated for deprecation on 15 June 2025.
+
+## [2.0.0] - 2026-09-09
+
 ### Fixed
 
 - **Authentication now works against the live SmartAPI.** The 1.x releases shipped a

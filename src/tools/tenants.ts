@@ -7,6 +7,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { buildTenantCard, TENANT_CARD_META } from "../card.builder.js";
 import { apiRequest } from "../utils/client.js";
 import { formatPagedResult, formatObjectResult, formatDeleteResult } from "../utils/format.js";
+import { listRequestOptions } from "../utils/request.js";
 import type { CallToolResult } from "../utils/types.js";
 
 interface Tenant {
@@ -30,6 +31,7 @@ export const tenantTools: Tool[] = [
       type: "object",
       properties: {
         scrollId: { type: "string", description: "Pagination scroll ID from a previous response." },
+        MSPId: { type: "integer", description: "Parent MSPs only: restrict to the tenants of this child MSP." },
       },
       additionalProperties: false,
     },
@@ -63,6 +65,7 @@ export const tenantTools: Tool[] = [
           enum: ["us", "eu", "ca"],
           description: "Country code for tenant creation region (lowercase).",
         },
+        MSPId: { type: "integer", description: "Parent MSPs only: create the tenant under this child MSP." },
       },
       required: ["adminEmail", "tenantName", "adminName", "phone", "companyName", "tenantRegion"],
       additionalProperties: false,
@@ -86,8 +89,10 @@ export async function handleTenantTool(
 ): Promise<CallToolResult> {
   switch (name) {
     case "avanan_list_tenants": {
-      const body = args.scrollId ? { requestData: { scrollId: String(args.scrollId) } } : undefined;
-      const res = await apiRequest<Tenant[]>("/msp/tenants", body ? { method: "GET", body } : {});
+      const res = await apiRequest<Tenant[]>(
+        "/msp/tenants",
+        listRequestOptions({ scrollId: args.scrollId, MSPId: args.MSPId })
+      );
       return formatPagedResult(res, res.responseData ?? [], "tenant");
     }
     case "avanan_get_tenant": {

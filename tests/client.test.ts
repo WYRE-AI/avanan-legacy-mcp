@@ -190,6 +190,25 @@ describe("apiRequest", () => {
     );
   });
 
+  it("repeats array query params the way the reference client does (doseq)", async () => {
+    primeAuthThenData();
+    await apiRequest("/msp/usage", { params: { year: 2026, month: 8, msp_ids: [1, 2] } });
+
+    const data = transport.mock.calls[1][0];
+    expect(data.url).toBe(
+      "https://smart-api-production-1-us.avanan.net/v1.0/msp/usage?year=2026&month=8&msp_ids=1&msp_ids=2"
+    );
+    expect(data.headers["x-av-sig"]).toBe(
+      expectedSig([
+        data.headers["x-av-req-id"],
+        CLIENT_ID,
+        data.headers["x-av-date"],
+        "/v1.0/msp/usage?year=2026&month=8&msp_ids=1&msp_ids=2",
+        CLIENT_SECRET,
+      ])
+    );
+  });
+
   it("reuses a cached token for the same client until it nears expiry", async () => {
     primeAuthThenData();
     await apiRequest("/msp/tenants");

@@ -139,7 +139,8 @@ async function getToken(creds: AvananCredentials, baseUrl: string): Promise<stri
 export interface ApiRequestOptions {
   method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
-  params?: Record<string, string | number | boolean | undefined>;
+  /** Query string. Array values repeat the key (`msp_ids=1&msp_ids=2`). */
+  params?: Record<string, string | number | boolean | Array<string | number> | undefined>;
 }
 
 function errorMessage(text: string, status: number): string {
@@ -172,7 +173,10 @@ export async function apiRequest<T = unknown>(
   const method = options.method ?? "GET";
   const url = new URL(`${baseUrl}/v1.0${path.startsWith("/") ? path : `/${path}`}`);
   for (const [key, value] of Object.entries(options.params ?? {})) {
-    if (value !== undefined) url.searchParams.set(key, String(value));
+    if (value === undefined) continue;
+    for (const item of Array.isArray(value) ? value : [value]) {
+      url.searchParams.append(key, String(item));
+    }
   }
 
   const headers = signedHeaders(creds, token, url.pathname + url.search);

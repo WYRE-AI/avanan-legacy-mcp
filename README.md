@@ -35,16 +35,73 @@ and the [Avanan SmartAPI Reference Guide (Feb 2024)](https://www.avanan.com/hubf
 
 | Env var | Required | Description |
 | --- | --- | --- |
-| `AVANAN_CLIENT_ID` | yes | SmartAPI Client ID (sent as `x-av-app-id`). MSP or customer-tenant key; see below. |
-| `AVANAN_CLIENT_SECRET` | yes | SmartAPI Client Secret. Only ever used to sign requests; never sent on the wire. |
-| `AVANAN_REGION` | no | `us` (default) \| `eu` \| `ca` \| `ap` \| `euw2` \| `aps1`. Avanan issues one key per region. |
+| `AVANAN_CLIENT_ID` | For stdio and `AUTH_MODE=env` | SmartAPI Client ID (sent as `x-av-app-id`). MSP or customer-tenant key; see below. |
+| `AVANAN_CLIENT_SECRET` | For stdio and `AUTH_MODE=env` | SmartAPI Client Secret. Only ever used to sign requests; never sent on the wire. |
+| `AVANAN_REGION` | no | `us` (default) \| `eu` \| `ca` \| `ap` \| `euw2` \| `aps1`. Avanan issues one key per region. Not a credential. |
 | `MCP_TRANSPORT` | no | `stdio` (default) or `http`. |
+| `AUTH_MODE` | no | `env` (default) or `gateway`. The container image and Compose set `gateway`. Gateway mode requires `X-Avanan-Client-Id` and `X-Avanan-Client-Secret` on each request and never falls back to `AVANAN_*`. |
+| `MCP_HTTP_HOST` | no | Bind address when `MCP_TRANSPORT=http`. Defaults to `127.0.0.1`. Honored only when `CONDUIT_S2S_SECRET` is set. The container image sets `0.0.0.0`. |
 | `MCP_HTTP_PORT` | no | HTTP transport port (default 8080). |
 | `LOG_LEVEL` | no | `debug` \| `info` \| `warn` \| `error` (default `info`). |
-| `CONDUIT_S2S_SECRET` | no | Set by the Conduit vendor-fleet deploy. When non-empty, every `/mcp` request must carry a valid `X-Gateway-S2S` header (`t=<unix>,v1=<HMAC-SHA256 hex>`) or it is rejected with 401 before any credential handling. Empty disables enforcement. |
+| `CONDUIT_S2S_SECRET` | Yes for HTTP | Service-to-service secret. HTTP logs an error and exits non-zero when this is empty or a known placeholder (`changeme`, `secret`, `your-s2s-secret`, and the other example values). Compose will not start when it is unset. Never commit a real value. |
+| `MCP_ALLOW_INSECURE_DEV` | no | Set to exactly `1` only for local development to start HTTP without `CONDUIT_S2S_SECRET`. The process logs a warning, does not enforce `X-Gateway-S2S`, and listens on `127.0.0.1` only. A non-loopback `MCP_HTTP_HOST` (including `0.0.0.0`) is ignored. A placeholder secret is still rejected. |
 
-In **gateway mode**, credentials are taken per-request from headers:
-`X-Avanan-Client-Id`, `X-Avanan-Client-Secret`, optionally `X-Avanan-Region`.
+Copy [`.env.example`](.env.example). Leave `CONDUIT_S2S_SECRET` empty there.
+
+`/health` stays unauthenticated and does not read credentials. The stdio transport does not use `CONDUIT_S2S_SECRET` or `X-Gateway-S2S`.
+
+### HTTP authentication
+
+With `MCP_TRANSPORT=http` and a real `CONDUIT_S2S_SECRET`, every request except `/health` must include `X-Gateway-S2S`:
+
+```
+t=<unix seconds>,v1=<hex>
+```
+
+`v1` is HMAC-SHA256 over the ASCII string `t=<unix seconds>` (the same `t=` prefix that starts the header), keyed with `CONDUIT_S2S_SECRET`, encoded as 64 lowercase hex characters. The timestamp must be within 300 seconds of the server clock. The comparison is timing-safe. A missing or invalid header returns 401 and does not touch Avanan credentials. The secret is never logged.
+
+In `AUTH_MODE=gateway`, the request must also include `X-Avanan-Client-Id` and `X-Avanan-Client-Secret` (`X-Avanan-Region` is optional). Those headers are the only credential source. A request missing either one returns 401 and does not fall back to `AVANAN_CLIENT_ID` / `AVANAN_CLIENT_SECRET`.
+
+In `AUTH_MODE=env`, `/mcp` still requires a valid `X-Gateway-S2S` header. Vendor credentials come from the environment when the request does not carry both client headers.
+
+### Docker
+
+The image listens on `0.0.0.0` inside the container (`MCP_HTTP_HOST`) and sets `AUTH_MODE=gateway`. Publish the port on loopback and pass the S2S secret. In gateway mode, Avanan credentials arrive on each request as headers; they are not read from the environment.
+
+```bash
+docker build -t avanan-legacy-mcp .
+docker run \
+  -e CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" \
+  -p 127.0.0.1:8080:8080 \
+  avanan-legacy-mcp
+```
+
+Compose refuses to start when `CONDUIT_S2S_SECRET` is unset, sets `AUTH_MODE=gateway`, publishes `127.0.0.1:8080:8080`, and does not put `AVANAN_CLIENT_ID` or `AVANAN_CLIENT_SECRET` in the service environment:
+
+```bash
+CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" docker compose up
+```
+
+Single-tenant HTTP (`AUTH_MODE=env`) still requires the S2S secret, then uses `AVANAN_CLIENT_ID` and `AVANAN_CLIENT_SECRET`. That is separate from the gateway Compose service.
+
+```bash
+docker run \
+  -e CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" \
+  -e AUTH_MODE=env \
+  -e AVANAN_CLIENT_ID=your-client-id \
+  -e AVANAN_CLIENT_SECRET=your-client-secret \
+  -e AVANAN_REGION=us \
+  -p 127.0.0.1:8080:8080 \
+  avanan-legacy-mcp
+```
+
+Local HTTP without a secret is development-only. It binds `127.0.0.1` even if `MCP_HTTP_HOST` is `0.0.0.0`, and logs a warning:
+
+```bash
+MCP_TRANSPORT=http MCP_ALLOW_INSECURE_DEV=1 npm start
+```
+
+Generate a secret with `openssl rand -hex 32`. Do not leave a placeholder in `CONDUIT_S2S_SECRET`; startup treats those values as unset and exits.
 
 The server performs the token handshake itself: it calls `GET /v1.0/auth`, caches the
 one-hour JWT per client ID, and refreshes it a minute before expiry.

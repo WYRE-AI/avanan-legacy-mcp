@@ -46,7 +46,7 @@ describe("verifyS2sHeader", () => {
     expect(verifyS2sHeader(`v1=${"0".repeat(64)},t=${now()}`, SECRET)).toBe(false);
   });
 
-  it("never verifies when the secret is empty (enforcement disabled upstream)", () => {
+  it("rejects when the secret is empty", () => {
     expect(verifyS2sHeader(mint(""), "")).toBe(false);
   });
 });

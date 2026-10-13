@@ -12,10 +12,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   set, every `/mcp` request must carry a valid `X-Gateway-S2S` header
   (`t=<unixSeconds>,v1=<HMAC-SHA256 hex over "t=<unixSeconds>">`, 5-minute skew window,
   timing-safe compare) or it is rejected with 401 before credential extraction, so a forged
-  request from a sibling sidecar never triggers an Avanan auth handshake. Empty secret keeps
-  the previous behaviour. `src/s2s-verify.ts` is a verbatim port of conduit's verifier.
+  request from a sibling sidecar never triggers an Avanan auth handshake. `src/s2s-verify.ts`
+  is a verbatim port of conduit's verifier.
   `startHttp` / `startStdio` are now exported and the entry point only auto-starts when run
   directly, so tests can boot the real HTTP handler.
+
+### Fixed
+
+- **HTTP transport fails closed without a real S2S secret (CWE-306).** Startup exits when
+  `CONDUIT_S2S_SECRET` is empty or a known placeholder. `MCP_ALLOW_INSECURE_DEV=1` is
+  local-only and listens on `127.0.0.1`. A configured secret still honors `MCP_HTTP_HOST`.
+  Gateway mode returns 401 when `X-Avanan-Client-Id` or `X-Avanan-Client-Secret` is missing
+  and does not fall back to `AVANAN_*`.
 
 ## [2.2.2] - 2026-09-09
 

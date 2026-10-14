@@ -59,10 +59,30 @@
           "format": "string"
         },
         {
+          "name": "MCP_HTTP_HOST",
+          "description": "HTTP bind address. Defaults to 127.0.0.1. Honored when CONDUIT_S2S_SECRET is set. The container image sets 0.0.0.0.",
+          "isRequired": false,
+          "default": "127.0.0.1",
+          "format": "string"
+        },
+        {
+          "name": "AUTH_MODE",
+          "description": "HTTP credential source: env (AVANAN_* variables) or gateway (required X-Avanan-Client-Id and X-Avanan-Client-Secret headers, no env fallback).",
+          "isRequired": false,
+          "default": "env",
+          "format": "string"
+        },
+        {
           "name": "CONDUIT_S2S_SECRET",
-          "description": "Conduit gateway S2S subkey; when set, /mcp requires a valid X-Gateway-S2S header (HTTP transport only)",
+          "description": "Gateway S2S secret. HTTP refuses to start when this is empty or a known placeholder. /mcp then requires a valid X-Gateway-S2S header.",
           "isRequired": false,
           "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "MCP_ALLOW_INSECURE_DEV",
+          "description": "Set to exactly 1 to start HTTP without CONDUIT_S2S_SECRET. Local development only; the listener is forced to 127.0.0.1.",
+          "isRequired": false,
           "format": "string"
         }
       ]

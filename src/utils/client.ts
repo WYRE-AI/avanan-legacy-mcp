@@ -43,6 +43,10 @@ export function getCredentials(): AvananCredentials | null {
   const req = getRequestCredentials();
   if (req) return { ...req, region: req.region ?? parseRegion(process.env.AVANAN_REGION) };
 
+  // Gateway mode is per-request only. A missing header must not fall back to
+  // process env, which is shared by every concurrent HTTP request.
+  if (process.env.AUTH_MODE === "gateway") return null;
+
   const clientId = process.env.AVANAN_CLIENT_ID;
   const clientSecret = process.env.AVANAN_CLIENT_SECRET;
   if (!clientId || !clientSecret) return null;

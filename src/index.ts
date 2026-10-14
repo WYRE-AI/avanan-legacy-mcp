@@ -16,11 +16,25 @@
  * Auth modes:
  *   - env (default): AVANAN_CLIENT_ID + AVANAN_CLIENT_SECRET, optional AVANAN_REGION
  *   - gateway: credentials injected per-request from
- *       X-Avanan-Client-Id, X-Avanan-Client-Secret, optional X-Avanan-Region
+ *       X-Avanan-Client-Id, X-Avanan-Client-Secret, optional X-Avanan-Region.
+ *       Missing headers are rejected. Gateway mode never falls back to AVANAN_*.
+ *
+ * HTTP transport refuses to start unless CONDUIT_S2S_SECRET is a real secret.
+ * Known placeholders are rejected. MCP_ALLOW_INSECURE_DEV=1 is a local-only
+ * escape hatch: it logs a warning and listens on 127.0.0.1 only.
+ * A configured secret still honors MCP_HTTP_HOST. The default bind is 127.0.0.1.
+ * /health stays unauthenticated and does not read credentials.
+ * stdio does not use S2S auth.
  */
 
 import { realpathSync } from "node:fs";
-import { createServer as createHttpServer, IncomingMessage, ServerResponse, type Server as HttpServer } from "node:http";
+import {
+  createServer as createHttpServer,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  type ServerResponse,
+  type Server as HttpServer,
+} from "node:http";
 import { fileURLToPath } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -45,11 +59,103 @@ import { actionTools, handleActionTool } from "./tools/actions.js";
 import { verifyS2sHeader, S2S_HEADER } from "./s2s-verify.js";
 import type { CallToolResult } from "./utils/types.js";
 
-// Conduit service-to-service auth (gateway#377 parity). Non-empty =
-// enforce X-Gateway-S2S on every /mcp request; empty = disabled, behavior
-// exactly as before (dark-by-default until the gateway provisions this
-// container's derived subkey). See src/s2s-verify.ts.
-const S2S_SECRET = process.env.CONDUIT_S2S_SECRET || "";
+const LOOPBACK_HOST = "127.0.0.1";
+
+/**
+ * Public example values. A copied placeholder must not verify as a real
+ * X-Gateway-S2S secret. Match is case-insensitive after trim.
+ */
+const KNOWN_S2S_PLACEHOLDER_SECRETS = new Set([
+  "replace-with-a-real-secret",
+  "your-s2s-secret",
+  "your-secret",
+  "changeme",
+  "change-me",
+  "placeholder",
+  "secret",
+  "example",
+  "replace-me",
+  "s2s-secret",
+]);
+
+const MISSING_S2S_SECRET_ERROR =
+  "Refusing to start HTTP transport: CONDUIT_S2S_SECRET is empty. " +
+  "Set CONDUIT_S2S_SECRET to the gateway-provisioned secret (openssl rand -hex 32), " +
+  "or set MCP_ALLOW_INSECURE_DEV=1 for local development only.";
+
+const PLACEHOLDER_S2S_SECRET_ERROR =
+  "Refusing to start HTTP transport: CONDUIT_S2S_SECRET is a known placeholder. " +
+  "Generate a secret with `openssl rand -hex 32` and set CONDUIT_S2S_SECRET to that value.";
+
+const INSECURE_DEV_WARNING =
+  "SECURITY WARNING: CONDUIT_S2S_SECRET is empty and MCP_ALLOW_INSECURE_DEV=1. " +
+  "HTTP /mcp is not enforcing X-Gateway-S2S and is listening on 127.0.0.1 only. " +
+  "Do not use this outside local development.";
+
+const S2S_UNAUTHORIZED = {
+  error:
+    "Missing or invalid X-Gateway-S2S header: this endpoint only accepts requests signed by the gateway.",
+};
+
+const GATEWAY_CREDENTIALS_UNAUTHORIZED = {
+  error: "Missing credentials",
+  message: "Gateway mode requires X-Avanan-Client-Id and X-Avanan-Client-Secret headers",
+  required: ["X-Avanan-Client-Id", "X-Avanan-Client-Secret"],
+  optional: ["X-Avanan-Region"],
+};
+
+function headerValue(value: string | string[] | undefined): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase().replace(/^\[(.+)\]$/, "$1");
+  if (normalized === "localhost" || normalized === "::1" || normalized === LOOPBACK_HOST) return true;
+  const bare = normalized.startsWith("::ffff:") ? normalized.slice("::ffff:".length) : normalized;
+  const parts = bare.split(".");
+  if (parts.length !== 4) return false;
+  if (parts.some((part) => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return false;
+  return parts[0] === "127";
+}
+
+/**
+ * Secret for X-Gateway-S2S. Read at HTTP startup, not module load.
+ * Empty or a known placeholder is fail-closed unless MCP_ALLOW_INSECURE_DEV=1
+ * (placeholders are never accepted, even with that flag). The secret value
+ * is never written to logs.
+ */
+function resolveHttpS2sSecret(): { secret: string; insecureDev: boolean } {
+  const raw = (process.env.CONDUIT_S2S_SECRET ?? "").trim();
+  if (raw && KNOWN_S2S_PLACEHOLDER_SECRETS.has(raw.toLowerCase())) {
+    logger.error(PLACEHOLDER_S2S_SECRET_ERROR);
+    process.exit(1);
+  }
+  if (raw) return { secret: raw, insecureDev: false };
+  if (process.env.MCP_ALLOW_INSECURE_DEV === "1") {
+    // error level so LOG_LEVEL=warn|error cannot hide the bypass.
+    logger.error(INSECURE_DEV_WARNING);
+    return { secret: "", insecureDev: true };
+  }
+  logger.error(MISSING_S2S_SECRET_ERROR);
+  process.exit(1);
+}
+
+/**
+ * No secret: always 127.0.0.1, including when MCP_HTTP_HOST is a wider address.
+ * A configured secret honors MCP_HTTP_HOST and defaults to 127.0.0.1 when unset.
+ */
+function resolveListenHost(insecureDev: boolean): string {
+  const configured = (process.env.MCP_HTTP_HOST ?? "").trim();
+  if (!insecureDev) return configured || LOOPBACK_HOST;
+  if (configured && !isLoopbackHost(configured)) {
+    logger.error(
+      `MCP_HTTP_HOST=${configured} is not a loopback address. ` +
+        "MCP_ALLOW_INSECURE_DEV=1 without CONDUIT_S2S_SECRET cannot listen there. " +
+        `Binding ${LOOPBACK_HOST} only.`
+    );
+  }
+  return LOOPBACK_HOST;
+}
 
 const ALL_TOOLS = [
   ...diagnosticTools,
@@ -127,7 +233,13 @@ export async function startStdio(): Promise<void> {
 }
 
 export async function startHttp(port: number): Promise<HttpServer> {
+  const { secret: s2sSecret, insecureDev } = resolveHttpS2sSecret();
+  const host = resolveListenHost(insecureDev);
+  const isGatewayMode = process.env.AUTH_MODE === "gateway";
+
   const http = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
+    // Liveness only. Must not read credentials: in gateway mode they arrive
+    // per request, and this route stays unauthenticated for container probes.
     if (req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok", name: "avanan-legacy-mcp" }));
@@ -136,18 +248,20 @@ export async function startHttp(port: number): Promise<HttpServer> {
 
     // S2S guard runs first: a forged request must never reach credential
     // handling, where the first tool call would mint an Avanan token.
-    if (S2S_SECRET && !verifyS2sHeader(req.headers[S2S_HEADER] as string | undefined, S2S_SECRET)) {
+    // Empty s2sSecret is only reachable when MCP_ALLOW_INSECURE_DEV=1.
+    if (s2sSecret && !verifyS2sHeader(s2sHeader(req.headers), s2sSecret)) {
       res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          error:
-            "Missing or invalid X-Gateway-S2S header: this endpoint only accepts requests signed by the gateway.",
-        })
-      );
+      res.end(JSON.stringify(S2S_UNAUTHORIZED));
       return;
     }
 
     const creds = extractCredentialsFromHeaders(req.headers);
+    if (isGatewayMode && !creds) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(GATEWAY_CREDENTIALS_UNAUTHORIZED));
+      return;
+    }
+
     const handle = async () => {
       const server = createMcpServer();
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -162,9 +276,22 @@ export async function startHttp(port: number): Promise<HttpServer> {
     }
   });
 
-  await new Promise<void>((resolve) => http.listen(port, resolve));
-  logger.info("Avanan legacy MCP server listening", { port, s2sEnforced: S2S_SECRET !== "" });
+  await new Promise<void>((resolve, reject) => {
+    http.once("error", reject);
+    http.listen(port, host, () => resolve());
+  });
+  const bound = http.address();
+  logger.info("Avanan legacy MCP server listening", {
+    host,
+    port: bound && typeof bound !== "string" ? bound.port : port,
+    s2sEnforced: s2sSecret !== "",
+    authMode: isGatewayMode ? "gateway" : "env",
+  });
   return http;
+}
+
+function s2sHeader(headers: IncomingHttpHeaders): string | undefined {
+  return headerValue(headers[S2S_HEADER]);
 }
 
 /* -------------------------------------------------------------------------- */
